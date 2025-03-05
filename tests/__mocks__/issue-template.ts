@@ -42,7 +42,7 @@ export default {
   updated_at: "",
   url: "https://api.github.com/repos/ubiquity/test-repo/issues/1",
   user: {
-    login: "user1"
+    login: "user1",
   },
   repo: "test-repo",
   labels: [

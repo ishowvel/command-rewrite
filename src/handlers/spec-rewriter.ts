@@ -7,7 +7,6 @@ import { TokenLimits } from "../types/llm";
 export const ADMIN_ROLES = ["admin", "owner", "billing_manager"];
 export const COLLABORATOR_ROLES = ["write", "member", "collaborator"];
 
-
 export class SpecificationRewriter {
   readonly context: Context;
 
@@ -62,9 +61,6 @@ export class SpecificationRewriter {
       completions.getModelMaxOutputLimit(openRouterAiModel)
     );
   }
-
-
-
 
   async getUserRole(context: Context) {
     const orgLogin = context.payload.organization?.login;
@@ -121,9 +117,9 @@ export class SpecificationRewriter {
 
 export async function timeLabelChange(context: Context<"issues.labeled">): Promise<CallbackResult> {
   if (context.payload.label?.name.toLowerCase().includes("Time")) {
-    const specificationRewriter = new SpecificationRewriter(context)
-    return specificationRewriter.performSpecRewrite()
+    const specificationRewriter = new SpecificationRewriter(context);
+    return specificationRewriter.performSpecRewrite();
   } else {
-    return { status: 200, reason: "Skipping spec rewrite because time label wasn't changed" }
+    return { status: 200, reason: "Skipping spec rewrite because time label wasn't changed" };
   }
 }

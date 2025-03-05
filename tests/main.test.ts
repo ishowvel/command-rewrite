@@ -6,21 +6,19 @@ import { Context, SupportedEvents } from "../src/types";
 import { drop } from "@mswjs/data";
 import issueTemplate from "./__mocks__/issue-template";
 import repoTemplate from "./__mocks__/repo-template";
-import { Octokit } from "@octokit/rest";
+import { Octokit, RestEndpointMethodTypes } from "@octokit/rest";
 import { Logs } from "@ubiquity-os/ubiquity-os-logger";
-import { ADMIN_ROLES, COLLABORATOR_ROLES } from "../src/handlers/spec-rewriter";
+import { ADMIN_ROLES, COLLABORATOR_ROLES, SpecificationRewriter } from "../src/handlers/spec-rewriter";
 
 // Mock constants
 const MOCK_ISSUE_REWRITE_SPEC = "rewritten specification";
 
 describe("SpecificationRewriter", () => {
-  let SpecificationRewriter: any;
-  let specRewriter: any;
+  let specRewriter: SpecificationRewriter;
   let ctx: Context;
 
   beforeAll(async () => {
     server.listen();
-    SpecificationRewriter = (await import("../src/handlers/spec-rewriter")).SpecificationRewriter;
   });
 
   afterEach(() => {
@@ -39,28 +37,28 @@ describe("SpecificationRewriter", () => {
 
   describe("getUserRole", () => {
     it("should return organization role when available", async () => {
-      jest.spyOn(ctx.octokit.rest.orgs, 'getMembershipForUser').mockResolvedValue({
-        data: { role: "ADMIN" }
-      } as any);
+      jest.spyOn(ctx.octokit.rest.orgs, "getMembershipForUser").mockResolvedValue({
+        data: { role: "ADMIN" },
+      } as unknown as RestEndpointMethodTypes["orgs"]["getMembershipForUser"]["response"]);
 
       const role = await specRewriter.getUserRole(ctx);
       expect(role).toBe("admin");
     });
 
     it("should fallback to repository role when org membership fails", async () => {
-      jest.spyOn(ctx.octokit.rest.orgs, 'getMembershipForUser').mockRejectedValue(new Error("Not found"));
+      jest.spyOn(ctx.octokit.rest.orgs, "getMembershipForUser").mockRejectedValue(new Error("Not found"));
 
-      jest.spyOn(ctx.octokit.rest.repos, 'getCollaboratorPermissionLevel').mockResolvedValue({
-        data: { role_name: "WRITE" }
-      } as any);
+      jest.spyOn(ctx.octokit.rest.repos, "getCollaboratorPermissionLevel").mockResolvedValue({
+        data: { role_name: "WRITE" },
+      } as unknown as RestEndpointMethodTypes["repos"]["getCollaboratorPermissionLevel"]["response"]);
 
       const role = await specRewriter.getUserRole(ctx);
       expect(role).toBe("write");
     });
 
     it("should return 'unknown' if both role retrieval methods fail", async () => {
-      jest.spyOn(ctx.octokit.rest.orgs, 'getMembershipForUser').mockRejectedValue(new Error("Not found"));
-      jest.spyOn(ctx.octokit.rest.repos, 'getCollaboratorPermissionLevel').mockRejectedValue(new Error("Permission error"));
+      jest.spyOn(ctx.octokit.rest.orgs, "getMembershipForUser").mockRejectedValue(new Error("Not found"));
+      jest.spyOn(ctx.octokit.rest.repos, "getCollaboratorPermissionLevel").mockRejectedValue(new Error("Permission error"));
 
       const role = await specRewriter.getUserRole(ctx);
       expect(role).toBe("unknown");
@@ -70,7 +68,7 @@ describe("SpecificationRewriter", () => {
   describe("canUserRewrite", () => {
     it("should allow admin roles to rewrite", async () => {
       for (const role of ADMIN_ROLES) {
-        jest.spyOn(specRewriter, 'getUserRole').mockResolvedValue(role);
+        jest.spyOn(specRewriter, "getUserRole").mockResolvedValue(role);
         const canRewrite = await specRewriter.canUserRewrite(ctx);
         expect(canRewrite).toBe(true);
       }
@@ -78,14 +76,14 @@ describe("SpecificationRewriter", () => {
 
     it("should allow collaborator roles to rewrite", async () => {
       for (const role of COLLABORATOR_ROLES) {
-        jest.spyOn(specRewriter, 'getUserRole').mockResolvedValue(role);
+        jest.spyOn(specRewriter, "getUserRole").mockResolvedValue(role);
         const canRewrite = await specRewriter.canUserRewrite(ctx);
         expect(canRewrite).toBe(true);
       }
     });
 
     it("should deny unknown roles", async () => {
-      jest.spyOn(specRewriter, 'getUserRole').mockResolvedValue("read");
+      jest.spyOn(specRewriter, "getUserRole").mockResolvedValue("read");
       const canRewrite = await specRewriter.canUserRewrite(ctx);
       expect(canRewrite).toBe(false);
     });
@@ -93,20 +91,27 @@ describe("SpecificationRewriter", () => {
 
   describe("performSpecRewrite", () => {
     it("should throw error if user lacks rewrite permissions", async () => {
-      try {
-        await specRewriter.performSpecRewrite();
-        fail('did not throw an error on lack of permission');
-      } catch (error: any) {
-        expect(error.logMessage).toBeDefined();
-        expect(error.logMessage.raw).toBe("User does not have sufficient permissions to rewrite spec");
-      }
+      jest.spyOn(specRewriter, "canUserRewrite").mockResolvedValue(false);
+
+      await expect(specRewriter.performSpecRewrite()).rejects.toMatchObject({
+        logMessage: {
+          raw: "User does not have sufficient permissions to rewrite spec",
+          level: "error",
+          type: "error",
+        },
+        metadata: {
+          caller: "SpecificationRewriter.performSpecRewrite",
+        },
+      });
     });
 
     it("should successfully rewrite specification", async () => {
-      jest.spyOn(specRewriter, 'canUserRewrite').mockResolvedValue(true);
-      jest.spyOn(specRewriter, 'rewriteSpec').mockResolvedValue(MOCK_ISSUE_REWRITE_SPEC);
+      jest.spyOn(specRewriter, "canUserRewrite").mockResolvedValue(true);
+      jest.spyOn(specRewriter, "rewriteSpec").mockResolvedValue(MOCK_ISSUE_REWRITE_SPEC);
 
-      const updateSpy = jest.spyOn(ctx.octokit.rest.issues, 'update').mockResolvedValue({} as any);
+      const updateSpy = jest
+        .spyOn(ctx.octokit.rest.issues, "update")
+        .mockResolvedValue({} as unknown as RestEndpointMethodTypes["issues"]["update"]["response"]);
 
       const result = await specRewriter.performSpecRewrite();
 
@@ -114,7 +119,7 @@ describe("SpecificationRewriter", () => {
         owner: ctx.payload.repository.owner.login,
         repo: ctx.payload.repository.name,
         issue_number: ctx.payload.issue.number,
-        body: MOCK_ISSUE_REWRITE_SPEC
+        body: MOCK_ISSUE_REWRITE_SPEC,
       });
 
       expect(result).toEqual({ status: 200, reason: "Success" });
@@ -123,13 +128,12 @@ describe("SpecificationRewriter", () => {
 
   describe("rewriteSpec", () => {
     it("should create completion using github conversation", async () => {
-      jest.spyOn(ctx.adapters.openRouter.completions, 'getModelMaxTokenLimit').mockReturnValue(50000);
-      jest.spyOn(ctx.adapters.openRouter.completions, 'getModelMaxOutputLimit').mockReturnValue(5000);
+      jest.spyOn(ctx.adapters.openRouter.completions, "getModelMaxTokenLimit").mockReturnValue(50000);
+      jest.spyOn(ctx.adapters.openRouter.completions, "getModelMaxOutputLimit").mockReturnValue(5000);
 
       const mockConversation = ["user1: This is a demo spec for a demo task just perfect for testing."];
 
-      const createCompletionSpy = jest.spyOn(ctx.adapters.openRouter.completions, 'createCompletion')
-        .mockResolvedValue(MOCK_ISSUE_REWRITE_SPEC);
+      const createCompletionSpy = jest.spyOn(ctx.adapters.openRouter.completions, "createCompletion").mockResolvedValue(MOCK_ISSUE_REWRITE_SPEC);
 
       const result = await specRewriter.rewriteSpec();
 
@@ -179,7 +183,7 @@ function createContext() {
     repo: "test-repo",
     logger: logger,
     config: {
-      openRouterAiModel: "test-model"
+      openRouterAiModel: "test-model",
     },
     env: {
       UBIQUITY_OS_APP_NAME: "UbiquityOS",
